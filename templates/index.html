@@ -1,93 +1,86 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <title>Continuous Speech-to-Text (No Duplicates)</title>
-  <style>
-    body      { font-family: Arial, sans-serif; text-align: center; margin-top: 3rem; }
-    #record   { padding: 0.6rem 2rem; font-size: 1rem; }
-    #status   { margin-top: 1rem; color: #888; }
-    #output   { margin: 2rem auto; max-width: 700px; font-size: 1.3rem; line-height: 1.5; }
-    .interim { color: #999; }
-  </style>
-</head>
-<body>
-  <h1>🎙️ Continuous Speech-to-Text</h1>
+<meta charset="UTF-8" />
+<title>Realtime Speech-to-Text (No Duplicates)</title>
 
+<style>
+  body      { font-family: Arial, sans-serif; text-align: center; margin-top: 3rem; }
+  #record   { padding: 0.6rem 2rem; font-size: 1rem; }
+  #status   { margin-top: 1rem; color: #888; }
+  #output   { margin: 2rem auto; max-width: 720px; font-size: 1.35rem; line-height: 1.6; white-space: pre-wrap; }
+  .interim  { color: #999; }
+</style>
+</head>
+
+<body>
+  <h1>🎙️ Browser Speech-to-Text</h1>
   <button id="record">Start</button>
   <p id="status">Idle</p>
-
   <div id="output"></div>
 
-  <script>
-    /* ---------- 1. Feature detection ---------- */
-    window.SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!window.SpeechRecognition){
-      alert("Web Speech API is not supported in this browser 😢. Try Chrome or Edge.");
-    }
+<script>
+/* -------- 1. Feature detection -------- */
+window.SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+if (!window.SpeechRecognition){
+  alert("Web Speech API is not supported in this browser.\nTry Chrome, Edge or any Chromium-based browser.");
+}
 
-    /* ---------- 2. Init recognizer ---------- */
-    const recognition             = new SpeechRecognition();
-    recognition.continuous        = true;   // mic stays open
-    recognition.interimResults    = true;   // live hypotheses
-    recognition.lang              = "ur-PK";  // set to whatever language you need
+/* -------- 2. Init recognizer -------- */
+const rec = new SpeechRecognition();
+rec.lang           = "ur-PK";   // change to e.g. "en-US", "ar-SA", … if you like
+rec.continuous     = true;      // keep mic open
+rec.interimResults = true;      // show grey live words
 
-    const recordBtn = document.getElementById("record");
-    const statusTxt = document.getElementById("status");
-    const outputDiv = document.getElementById("output");
+/* -------- 3. DOM refs -------- */
+const btn    = document.getElementById("record");
+const status = document.getElementById("status");
+const output = document.getElementById("output");
 
-    let listening     = false;
-    let finalBuffer   = "";   // text that’s already been committed
-    let lastFinalChunk = "";  // last final chunk we saw (for dedupe)
+let listening = false;
+let fullText  = "";   // everything we’ve already committed
 
-    /* ---------- 3. Button ---------- */
-    recordBtn.addEventListener("click", () => {
-      listening ? recognition.stop() : recognition.start();
-    });
+/* -------- 4. Button handler -------- */
+btn.onclick = () => listening ? rec.stop() : rec.start();
 
-    /* ---------- 4. Callbacks ---------- */
-    recognition.addEventListener("start", () => {
-      listening              = true;
-      recordBtn.textContent  = "Stop";
-      statusTxt.textContent  = "Listening…";
-    });
+/* -------- 5. Visual state -------- */
+rec.onstart = () => { listening = true;  btn.textContent="Stop";  status.textContent="Listening…"; };
+rec.onend   = () => { listening = false; btn.textContent="Start"; status.textContent="Idle"; };
 
-    recognition.addEventListener("end", () => {
-      listening              = false;
-      recordBtn.textContent  = "Start";
-      statusTxt.textContent  = "Idle";
-    });
+/* -------- 6. MAIN LOGIC: append only the delta -------- */
+rec.onresult = (e) => {
+  let interim      = "";
+  let latestFinal  = "";
 
-    recognition.addEventListener("result", e => {
-      let interimChunk = "";
-      let finalChunk   = "";
+  /* collect interim + final for this event */
+  for (let i = e.resultIndex; i < e.results.length; ++i){
+    const txt = e.results[i][0].transcript;
+    (e.results[i].isFinal ? latestFinal : interim) += txt;
+  }
 
-      /* Collect interim + final words from this event */
-      for (let i = e.resultIndex; i < e.results.length; ++i) {
-        const txt = e.results[i][0].transcript;
-        if (e.results[i].isFinal) finalChunk += txt + " ";
-        else                      interimChunk += txt;
-      }
+  /* ---- delta trick ----
+     Chrome often re-sends the entire sentence as it grows:
+       f1: "میں"
+       f2: "میں تم"
+       f3: "میں تم سے"
+     So we remove the prefix we already stored (if present)    */
+  if (latestFinal){
+     if (latestFinal.startsWith(fullText)){
+         latestFinal = latestFinal.slice(fullText.length);
+     }
+     fullText += latestFinal + " ";   // commit ONLY the new words
+  }
 
-      /* ------------- Dedupe logic ------------- */
-      // If we got a new final chunk AND it differs from the previous one,
-      // append it once to the committed buffer.
-      if (finalChunk && finalChunk.trim() !== lastFinalChunk.trim()) {
-        finalBuffer    += finalChunk;
-        lastFinalChunk  = finalChunk;
-      }
+  /* render */
+  output.innerHTML = fullText + '<span class="interim">' + interim + '</span>';
+};
 
-      // Display = committed text + current live words
-      outputDiv.innerHTML =
-        finalBuffer + '<span class="interim">' + interimChunk + "</span>";
-    });
-
-    /* ---------- 5. Optional: squeeze adjacent repeats after user stops ---------- */
-    recognition.addEventListener("end", () => {
-      // Simple regex that collapses consecutive duplicates like "میں میں"
-      finalBuffer = finalBuffer.replace(/\b(\S+)( \1\b)+/g, '$1');
-      outputDiv.textContent = finalBuffer.trim();
-    });
-  </script>
+/* -------- 7. Optional clean-up when user stops -------- */
+rec.addEventListener("end", () => {
+   /* collapse accidental word-word stutter */
+   fullText = fullText.replace(/\b(\S+)( \1\b)+/g, '$1');
+   output.textContent = fullText.trim();
+});
+</script>
 </body>
 </html>
