@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Simple Speech-to-Text Demo</title>
+  <style>
+    body      { font-family: Arial, sans-serif; text-align: center; margin-top: 3rem; }
+    #record   { padding: 0.6rem 2rem; font-size: 1rem; }
+    #status   { margin-top: 1rem; color: #888; }
+    #output   { margin: 2rem auto; max-width: 700px; font-size: 1.3rem; line-height: 1.4; }
+    .interim { color: #999; }
+  </style>
+</head>
+<body>
+
+  <h1>🚀 Browser Speech-to-Text</h1>
+
+  <button id="record">Start</button>
+  <p id="status">Idle</p>
+
+  <div id="output"></div>
+
+  <script>
+    // 1) Feature detection
+    window.SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!window.SpeechRecognition){
+      alert("Web Speech API is not supported in this browser 😢. Try Chrome or Edge.");
+    }
+
+    // 2) Init
+    const recognition   = new SpeechRecognition();
+    recognition.continuous     = true;  // keep listening
+    recognition.interimResults = true;  // show words while still speaking
+    recognition.lang           = "en-US";
+
+    const recordBtn = document.getElementById("record");
+    const statusTxt = document.getElementById("status");
+    const outputDiv = document.getElementById("output");
+
+    let listening = false;
+    let finalText = "";
+
+    // 3) Button handler
+    recordBtn.addEventListener("click", () => {
+      listening ? recognition.stop() : recognition.start();
+    });
+
+    // 4) Callbacks
+    recognition.addEventListener("start", () => {
+      listening            = true;
+      recordBtn.textContent = "Stop";
+      statusTxt.textContent = "Listening…";
+    });
+
+    recognition.addEventListener("end", () => {
+      listening             = false;
+      recordBtn.textContent = "Start";
+      statusTxt.textContent = "Idle";
+    });
+
+    recognition.addEventListener("result", e => {
+      let interim = "";
+
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const transcript = e.results[i][0].transcript;
+        e.results[i].isFinal ? finalText += transcript + " " : interim += transcript;
+      }
+
+      outputDiv.innerHTML = finalText + '<span class="interim">' + interim + '</span>';
+    });
+  </script>
+</body>
+</html>
