@@ -2,18 +2,17 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Simple Speech-to-Text Demo</title>
+  <title>Continuous Speech-to-Text (No Duplicates)</title>
   <style>
     body      { font-family: Arial, sans-serif; text-align: center; margin-top: 3rem; }
     #record   { padding: 0.6rem 2rem; font-size: 1rem; }
     #status   { margin-top: 1rem; color: #888; }
-    #output   { margin: 2rem auto; max-width: 700px; font-size: 1.3rem; line-height: 1.4; }
+    #output   { margin: 2rem auto; max-width: 700px; font-size: 1.3rem; line-height: 1.5; }
     .interim { color: #999; }
   </style>
 </head>
 <body>
-
-  <h1>🚀 Browser Speech-to-Text</h1>
+  <h1>🎙️ Continuous Speech-to-Text</h1>
 
   <button id="record">Start</button>
   <p id="status">Idle</p>
@@ -21,52 +20,73 @@
   <div id="output"></div>
 
   <script>
-    // 1) Feature detection
+    /* ---------- 1. Feature detection ---------- */
     window.SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!window.SpeechRecognition){
       alert("Web Speech API is not supported in this browser 😢. Try Chrome or Edge.");
     }
 
-    // 2) Init
-    const recognition   = new SpeechRecognition();
-    recognition.continuous     = true;  // keep listening
-    recognition.interimResults = true;  // show words while still speaking
-    recognition.lang           = "ur-PK";
+    /* ---------- 2. Init recognizer ---------- */
+    const recognition             = new SpeechRecognition();
+    recognition.continuous        = true;   // mic stays open
+    recognition.interimResults    = true;   // live hypotheses
+    recognition.lang              = "ur-PK";  // set to whatever language you need
 
     const recordBtn = document.getElementById("record");
     const statusTxt = document.getElementById("status");
     const outputDiv = document.getElementById("output");
 
-    let listening = false;
-    let finalText = "";
+    let listening     = false;
+    let finalBuffer   = "";   // text that’s already been committed
+    let lastFinalChunk = "";  // last final chunk we saw (for dedupe)
 
-    // 3) Button handler
+    /* ---------- 3. Button ---------- */
     recordBtn.addEventListener("click", () => {
       listening ? recognition.stop() : recognition.start();
     });
 
-    // 4) Callbacks
+    /* ---------- 4. Callbacks ---------- */
     recognition.addEventListener("start", () => {
-      listening            = true;
-      recordBtn.textContent = "Stop";
-      statusTxt.textContent = "Listening…";
+      listening              = true;
+      recordBtn.textContent  = "Stop";
+      statusTxt.textContent  = "Listening…";
     });
 
     recognition.addEventListener("end", () => {
-      listening             = false;
-      recordBtn.textContent = "Start";
-      statusTxt.textContent = "Idle";
+      listening              = false;
+      recordBtn.textContent  = "Start";
+      statusTxt.textContent  = "Idle";
     });
 
     recognition.addEventListener("result", e => {
-      let interim = "";
+      let interimChunk = "";
+      let finalChunk   = "";
 
-      for (let i = e.resultIndex; i < e.results.length; i++) {
-        const transcript = e.results[i][0].transcript;
-        e.results[i].isFinal ? finalText += transcript + " " : interim += transcript;
+      /* Collect interim + final words from this event */
+      for (let i = e.resultIndex; i < e.results.length; ++i) {
+        const txt = e.results[i][0].transcript;
+        if (e.results[i].isFinal) finalChunk += txt + " ";
+        else                      interimChunk += txt;
       }
 
-      outputDiv.innerHTML = finalText + '<span class="interim">' + interim + '</span>';
+      /* ------------- Dedupe logic ------------- */
+      // If we got a new final chunk AND it differs from the previous one,
+      // append it once to the committed buffer.
+      if (finalChunk && finalChunk.trim() !== lastFinalChunk.trim()) {
+        finalBuffer    += finalChunk;
+        lastFinalChunk  = finalChunk;
+      }
+
+      // Display = committed text + current live words
+      outputDiv.innerHTML =
+        finalBuffer + '<span class="interim">' + interimChunk + "</span>";
+    });
+
+    /* ---------- 5. Optional: squeeze adjacent repeats after user stops ---------- */
+    recognition.addEventListener("end", () => {
+      // Simple regex that collapses consecutive duplicates like "میں میں"
+      finalBuffer = finalBuffer.replace(/\b(\S+)( \1\b)+/g, '$1');
+      outputDiv.textContent = finalBuffer.trim();
     });
   </script>
 </body>
